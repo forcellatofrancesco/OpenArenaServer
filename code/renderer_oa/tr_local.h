@@ -1,3 +1,4 @@
+
 /*
 ===========================================================================
 Copyright (C) 1999-2005 Id Software, Inc.
@@ -30,7 +31,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "../renderercommon/tr_public.h"
 #include "../renderercommon/tr_common.h"
+#ifdef BROKEN_IQM
 #include "../renderercommon/iqm.h"
+#endif
 #include "../renderercommon/qgl.h"
 
 #define GL_INDEX_TYPE		GL_UNSIGNED_INT
@@ -47,6 +50,7 @@ typedef unsigned int glIndex_t;
 #define SHADERNUM_BITS	14
 #define MAX_SHADERS		(1<<SHADERNUM_BITS)
 
+extern qboolean    textureCompressionSupport;	// leilei - compressed texture
 extern qboolean    palettedTextureSupport;	// leilei - paletted texture
 
 typedef struct dlight_s {
@@ -59,6 +63,53 @@ typedef struct dlight_s {
 } dlight_t;
 
 
+// leilei - crazy MDR physics bones
+#define MAX_MDR_PHYSICS 32
+
+#define MDP_SPRING 	1
+#define MDP_JIGGLE 	2	
+#define MDP_HAIR   	3
+#define MDP_SCALESET	4
+#define MDP_LINK	5 // points targbone to targbone2
+#define MDP_INHERIT	6 // takes origin/angle change from targbone to targbone2
+#define MDP_DEBUG  	7
+
+#ifdef BROKEN_MDRPHYS
+typedef struct mdrPhysics_s {
+	int 		targbone;	// Bone to target
+	int 		type;		// type of physic
+	float 		spring;
+	vec3_t		limitl; 	// length limit for spring
+	vec3_t		limitr;		// rotateable limit for spring
+	int		scaleset;	// which set of scale to use
+	vec3_t		scale1;		// For scaleset
+	vec3_t		scale2;		// For scaleset
+	int 		suggestive; 	// user disableable
+} mdrPhysics_t;
+	
+// For Model_t's to track their properties of each physic and the bone they modify
+typedef struct mdrPhys_s {
+	mdrPhysics_t	p[MAX_MDR_PHYSICS];
+	int		maxphs;
+	int		modelindex;
+	//model_t		*mod;
+	int		mdln;
+	int		inited;
+} mdrPhys_t;
+
+// For RefEntity_t's to track their bones that are being moved
+typedef struct mdrPhysLocal_s
+{
+	vec3_t	oldorg[MDR_MAX_BONES];
+	vec3_t 	neworg[MDR_MAX_BONES];
+	vec3_t	oldmorg[MDR_MAX_BONES];
+	vec3_t 	newmorg[MDR_MAX_BONES];
+	vec3_t	vel[MDR_MAX_BONES];
+	int	time[MDR_MAX_BONES];			// when to iterate physics
+	int	modindex;			// hack to verify if it's the same model getting physics?
+} mdrPhysLocal_t;
+
+#endif
 
 // a trRefEntity_t has all the information passed in by
 // the client game, as well as some locally derived info
@@ -76,8 +127,14 @@ typedef struct {
 	vec3_t		dynamicLight;
 	float		lightDistance;
 
-	// leilei - eyes
-	vec3_t		eyepos[2];			// looking from
+#ifdef BROKEN_MDRPHYS
+	// leilei - local mdr physics for this ent
+	vec3_t		bonfs;
+	vec3_t		olorg;
+	vec3_t		nuorg;
+	mdrPhys_t	*phy;
+	mdrPhysLocal_t	pl;
+#endif
 } trRefEntity_t;
 
 
@@ -584,7 +641,12 @@ typedef enum {
 	SF_POLY,
 	SF_MD3,
 	SF_MDR,
+#ifdef BROKEN_MDRPHYS
+	SF_MDP,
+#endif
+#ifdef BROKEN_IQM
 	SF_IQM,
+#endif
 	SF_FLARE,
 	SF_ENTITY,				// beams, rails, lightning, etc that can be determined by entity
 	SF_DISPLAY_LIST,
@@ -692,6 +754,7 @@ typedef struct {
 	drawVert_t		*verts;
 } srfTriangles_t;
 
+#ifdef BROKEN_IQM
 // inter-quake-model
 typedef struct {
 	int		num_vertexes;
@@ -736,6 +799,7 @@ typedef struct srfIQModel_s {
 	int		first_triangle, num_triangles;
 } srfIQModel_t;
 
+#endif
 
 extern	void (*rb_surfaceTable[SF_NUM_SURFACE_TYPES])(void *);
 
@@ -967,9 +1031,10 @@ typedef enum {
 	MOD_BAD,
 	MOD_BRUSH,
 	MOD_MESH,
-	MOD_MDR,
-	MOD_MDO,
-	MOD_IQM
+	MOD_MDR
+#ifdef BROKEN_IQM
+	,MOD_IQM
+#endif
 } modtype_t;
 
 typedef struct model_s {
@@ -981,6 +1046,11 @@ typedef struct model_s {
 	bmodel_t	*bmodel;		// only if type == MOD_BRUSH
 	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
 	void	*modelData;			// only if type == (MOD_MDR | MOD_IQM)
+#ifdef BROKEN_MDRPHYS
+	mdrPhys_t		phys;		// leilei - MDR model physics
+	int			mdln;
+	int			hasphysics;	// leilei - mdr physics
+#endif
 
 	int			 numLods;
 } model_t;
@@ -1152,6 +1222,9 @@ typedef struct {
 	shader_t				*flareShader;
 	shader_t				*flareShaderAtlas;	// leilei - lens reflections
 	shader_t				*sunShader;
+	char					*sunShaderCustom; 	// leilei - sunShader override
+
+	shader_t				*coneShader;		// leilei - flashblends
 
 	qhandle_t				skipProgram;
 	qhandle_t				defaultProgram;
@@ -1191,6 +1264,8 @@ typedef struct {
 
 	vec3_t					sunLight;			// from the sky shader for this level
 	vec3_t					sunDirection;
+	int					sunFlare;			// leilei - sun flare type
+	float					sunOn;				// leilei - allow the sun to be drawn, if a sunShader is specified by a sky shader.  This is a float so we can multiply the size of the sun in the shader
 
 	frontEndCounters_t		pc;
 	int						frontEndMsec;		// not in pc due to clearing issue
@@ -1242,7 +1317,7 @@ typedef struct {
 	qboolean				placeholderFogAvail;
 	qboolean				placeholderAvail;
 
-
+	image_t					*transRights;	// leilei
 
 } trGlobals_t;
 
@@ -1253,7 +1328,7 @@ extern glstate_t	glState;		// outside of TR since it shouldn't be cleared during
 extern qboolean  vertexShaders;
 extern qboolean  postprocess;
 extern int	 leifxmode;	// leilei - leifx
-extern char		 depthimage;
+extern char	 depthimage;
 
 //
 // cvars
@@ -1369,6 +1444,7 @@ extern	cvar_t	*r_lensReflection1;
 extern	cvar_t	*r_lensReflection2;
 extern	cvar_t	*r_lensReflectionBrightness;
 
+extern cvar_t	*r_loadDDS;				// leilei - Compressed Texture
 extern cvar_t	*r_ext_paletted_texture;		// leilei - Paletted Texture
 extern cvar_t	*r_ext_gamma_control;			// leilei - 3dfx gamma control
 extern	cvar_t	*r_specMode;		
@@ -1390,9 +1466,14 @@ extern cvar_t	*r_suggestiveThemes;	// Leilei - mature content
 extern cvar_t	*r_leidebug;	// Leilei - debug only!
 extern cvar_t	*r_leidebugeye;	// Leilei - debug only!
 extern cvar_t	*r_particles;	// Leilei - particles!
+#ifdef BROKEN_MDRPHYS
+extern cvar_t	*r_mdrPhysics;	// Leilei - MDR Physics
+#endif
 
 extern	cvar_t	*r_iconmip;	// leilei - icon mip - picmip for 2d icons
 extern	cvar_t	*r_iconBits;	// leilei - icon color depth for 2d icons
+
+extern cvar_t	*r_lerpbias;	// Leilei - lerping bias
 
 extern	cvar_t	*r_lightmapBits;	// leilei - lightmap color depth
 extern	cvar_t	*r_lightmapColorNorm;	// leilei - lightmap color normalize
@@ -1565,12 +1646,12 @@ typedef struct shaderCommands_s
 
 	shader_t	*shader;
 	float		shaderTime;
-	int			fogNum;
+	int		fogNum;
 
-	int			dlightBits;	// or together of all vertexDlightBits
+	int		dlightBits;	// or together of all vertexDlightBits
 
-	int			numIndexes;
-	int			numVertexes;
+	int		numIndexes;
+	int		numVertexes;
 
 	// info extracted from current shader
 	int			numPasses;
@@ -2072,13 +2153,14 @@ ANIMATED MODELS
 
 void R_MDRAddAnimSurfaces( trRefEntity_t *ent );
 void RB_MDRSurfaceAnim( mdrSurface_t *surface );
+#ifdef BROKEN_IQM
 qboolean R_LoadIQM (model_t *mod, void *buffer, int filesize, const char *name );
 void R_AddIQMSurfaces( trRefEntity_t *ent );
 void RB_IQMSurfaceAnim( surfaceType_t *surface );
 int R_IQMLerpTag( orientation_t *tag, iqmData_t *data,
                   int startFrame, int endFrame,
                   float frac, const char *tagName );
-
+#endif
 /*
 =============================================================
 
@@ -2092,7 +2174,7 @@ void R_LoadJPG( const char *name, byte **pic, int *width, int *height );
 void R_LoadPCX( const char *name, byte **pic, int *width, int *height );
 void R_LoadPNG( const char *name, byte **pic, int *width, int *height );
 void R_LoadTGA( const char *name, byte **pic, int *width, int *height );
-
+//void R_LoadDDS( const char *name, byte **pic, int *width, int *height );
 /*
 =============================================================
 =============================================================
@@ -2320,6 +2402,7 @@ void R_QarticleExplosion(const vec3_t org);
 void R_LFX_Blood (const vec3_t org, const vec3_t dir, float pressure) ;
 void LFX_ShaderInit(void);
 void LFX_ParticleEffect (int effect, const vec3_t org, const vec3_t dir);
+void RE_GetViewPosition(vec3_t point);
 
 #endif //TR_LOCAL_H
 

@@ -531,8 +531,8 @@ void R_ImageList_f( void ) {
 			sizeSuffix = "Gb";
 		}
 
-		//ri.Printf(PRINT_ALL, "%4i: %4ix%4i %s %4i%s %s\n", i, image->uploadWidth, image->uploadHeight, format, displaySize, sizeSuffix, image->imgName);
-		ri.Printf(PRINT_ALL, "%4i: %4ix%4i %s %4i%s %s %f %f\n", i, image->uploadWidth, image->uploadHeight, format, displaySize, sizeSuffix, image->imgName, image->loadTime, image->procTime);
+		ri.Printf(PRINT_ALL, "%4i: %4ix%4i %s %4i%s %s\n", i, image->uploadWidth, image->uploadHeight, format, displaySize, sizeSuffix, image->imgName);
+		//ri.Printf(PRINT_ALL, "%4i: %4ix%4i %s %4i%s %s %f %f\n", i, image->uploadWidth, image->uploadHeight, format, displaySize, sizeSuffix, image->imgName, image->loadTime, image->procTime);
 
 		estTotalSize += estSize;
 		estTotalTimeLoaded += image->loadTime + image->procTime;
@@ -2131,6 +2131,10 @@ Finds or loads the given image.
 Returns NULL if it fails, not a default image.
 ==============
 */
+#ifdef BROKEN_DDS
+// DDS/DXT
+image_t        *R_LoadDDSImage(const char *name, int bits,  filterType_t filterType, wrapType_t wrapType);
+#endif
 image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
 {
 	image_t	*image;
@@ -2140,7 +2144,9 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
 	long	hash;
 	float oldtime;
 	float loadtime;
-
+#ifdef BROKEN_DDS
+	char  ddsName[1024];
+#endif
 	if (!name) {
 		return NULL;
 	}
@@ -2162,6 +2168,31 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
 			return image;
 		}
 	}
+#ifdef BROKEN_DDS
+	// leilei - DDS - do it here, so we can have a hardware compressed texture instead. The normal means of texture loading expects pixels to be returned which we won't do.
+	if(textureCompressionSupport && r_loadDDS->integer)
+	{
+		int bits;	// no bits
+		int whatclamp;
+		Q_strncpyz(ddsName, name, sizeof(ddsName));
+		COM_StripExtension(ddsName, ddsName, sizeof(ddsName));
+		Q_strcat(ddsName, sizeof(ddsName), ".dds");
+
+	//	if (glWrapClampMode == GL_CLAMP_TO_EDGE)
+	//	whatclamp = WT_CLAMP;
+	//	else
+	//	whatclamp = WT_REPEAT;
+		// try to load a customized .dds texture
+		
+		image = R_LoadDDSImage(ddsName, bits, 0, whatclamp);
+		if(image != NULL)
+		{
+		//	ri.Printf(PRINT_ALL, "found custom .dds '%s'\n", ddsName);
+			return image;
+		}
+	}
+
+#endif
 
 	// leilei - Detail texture hack
 	//	    to kill artifacts of shimmer of pattern of terrible
@@ -2321,6 +2352,56 @@ image_t	*R_FindImageFileIfItsThere( const char *name, imgType_t type, imgFlags_t
 	ismaptexture = 0;
 	return image;
 }
+
+
+
+
+/*
+================
+Rebecca Heineman
+
+   1963-2025
+
+Jennell Jaquays
+
+   1956-2024
+================
+*/
+
+static void R_ebeccaHeineman( void ) {
+	int		x,y;
+	byte	data[16][16][4];
+
+	for (x=0 ; x<16 ; x++) {
+		for (y=0 ; y<16 ; y++) {
+
+			if (y<3 || y>12) // blue
+			{
+				data[y][x][0] = 31;
+				data[y][x][1] = 206;
+				data[y][x][2] = 250;
+			}
+			else if (y<6 || y>9) // pink
+			{
+				data[y][x][0] = 245;
+				data[y][x][1] = 169;
+				data[y][x][2] = 184;
+			}
+			else			// white
+			{
+				data[y][x][0] = 255;
+				data[y][x][1] = 255;
+				data[y][x][2] = 255;
+			}
+		//	data[y][x][0] = 
+		//	data[y][x][1] = 
+		//	data[y][x][2] = b;
+			data[y][x][3] = 255;			
+		}
+	}
+	tr.transRights = R_CreateImage("thankYouRebeccaHeineman&JennellJaquays", (byte *)data, 16, 16, IMGTYPE_COLORALPHA, IMGFLAG_CLAMPTOEDGE, 0 );
+}
+
 
 
 /*
@@ -2530,6 +2611,7 @@ void R_CreateBuiltinImages( void ) {
 		tr.scratchImage[x] = R_CreateImage("*scratch", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, IMGTYPE_COLORALPHA, IMGFLAG_PICMIP | IMGFLAG_CLAMPTOEDGE, 0);
 	}
 
+	R_ebeccaHeineman();
 
 	R_CreateDlightImage();
 
@@ -2953,3 +3035,44 @@ void	R_SkinList_f( void ) {
 	ri.Printf (PRINT_ALL, "------------------\n");
 }
 
+#ifdef BROKEN_DDS
+// leilei - for DDS loading, which relies on this function...
+/*
+================
+R_AllocImage
+================
+*/
+image_t        *R_AllocImage(const char *name, qboolean linkIntoHashTable)
+{
+	image_t        *image;
+	long            hash;
+	char            buffer[1024];
+
+//  if(strlen(name) >= MAX_QPATH)
+	if(strlen(name) >= 1024)
+	{
+		ri.Error(ERR_DROP, "R_AllocImage: \"%s\" image name is too long\n", name);
+		return NULL;
+	}
+
+	image = ri.Hunk_Alloc(sizeof(image_t), h_low);
+	Com_Memset(image, 0, sizeof(image_t));
+
+
+	qglGenTextures(1, &image->texnum);
+
+	//Com_AddToGrowList(&tr.images, image);
+
+	Q_strncpyz(image->imgName, name, sizeof(image->imgName));
+
+	if(linkIntoHashTable)
+	{
+		Q_strncpyz(buffer, name, sizeof(buffer));
+		hash = generateHashValue(buffer);
+		image->next = hashTable[hash];
+		hashTable[hash] = image;
+	}
+
+	return image;
+}
+#endif

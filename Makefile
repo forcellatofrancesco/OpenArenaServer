@@ -228,6 +228,14 @@ ifndef USE_LOCAL_HEADERS
 USE_LOCAL_HEADERS=1
 endif
 
+ifndef WINFOUR
+WINFOUR=0
+endif
+
+ifndef USE_REACTOS_WINSOCK_HEADER
+USE_REACTOS_WINSOCK_HEADER=0
+endif
+
 ifndef USE_RENDERER_DLOPEN
 USE_RENDERER_DLOPEN=1
 endif
@@ -242,6 +250,15 @@ endif
 
 ifndef SDL_VERSION
 SDL_VERSION=2
+endif
+
+ifeq ($(WINFOUR),1)
+  BASE_CFLAGS += -DWINFOUR
+  BASE_CFLAGS += -DUSE_REACTOS_WINSOCK_HEADER
+  BASE_CFLAGS += -DUSE_INTERNAL_JPEG
+  SDL_VERSION=1
+  USE_CURL=0
+ # CLIENTBIN=oa95
 endif
 
 #############################################################################
@@ -1141,6 +1158,10 @@ ifeq ($(USE_LOCAL_HEADERS),1)
   BASE_CFLAGS += -DUSE_LOCAL_HEADERS
 endif
 
+ifeq ($(USE_REACTOS_WINSOCK_HEADER),1)
+  BASE_CFLAGS += -DUSE_REACTOS_WINSOCK_HEADER
+endif
+
 ifeq ($(BUILD_STANDALONE),1)
   BASE_CFLAGS += -DSTANDALONE
 endif
@@ -1154,7 +1175,7 @@ endif
 ifeq ($(NO_STRIP),1)
   STRIP_FLAG =
 else
-  STRIP_FLAG = -s
+  STRIP_FLAG = -s 
 endif
 
 BASE_CFLAGS += -DPRODUCT_VERSION=\\\"$(VERSION)\\\"
@@ -1162,6 +1183,7 @@ BASE_CFLAGS += -Wformat=2 -Wno-format-zero-length -Wformat-security -Wno-format-
 BASE_CFLAGS += -Wstrict-aliasing=2 -Wmissing-format-attribute
 BASE_CFLAGS += -Wdisabled-optimization
 BASE_CFLAGS += -Werror-implicit-function-declaration
+BASE_CFLAGS += -Wno-int-conversion
 
 ifeq ($(V),1)
 echo_cmd=@:
@@ -1267,7 +1289,7 @@ endef
 #############################################################################
 
 default: release
-all: debug release
+all: debug release 
 
 debug:
 	@$(MAKE) targets B=$(BD) CFLAGS="$(CFLAGS) $(BASE_CFLAGS) $(DEPEND_CFLAGS)" \
@@ -1757,6 +1779,7 @@ Q3ROAOBJ = \
   $(B)/renderer_oa/tr_image_jpg.o \
   $(B)/renderer_oa/tr_image_bmp.o \
   $(B)/renderer_oa/tr_image_tga.o \
+  $(B)/renderer_oa/tr_image_dds.o \
   $(B)/renderer_oa/tr_image_pcx.o \
   $(B)/renderer_oa/tr_init.o \
   $(B)/renderer_oa/tr_light.o \
@@ -1831,6 +1854,7 @@ Q3RSOFTOBJ = \
   $(B)/renderer_oa/tr_image_jpg.o \
   $(B)/renderer_oa/tr_image_bmp.o \
   $(B)/renderer_oa/tr_image_tga.o \
+  $(B)/renderer_oa/tr_image_dds.o \
   $(B)/renderer_oa/tr_image_pcx.o \
   $(B)/renderer_oa/tr_init.o \
   $(B)/renderer_oa/tr_light.o \
@@ -3020,8 +3044,8 @@ else
 	@$(MAKE) VERSION=$(VERSION) -C $(LOKISETUPDIR) V=$(V)
 endif
 
-dist:
-	git archive --format zip --output $(CLIENTBIN)-$(VERSION).zip HEAD
+# dist:
+#	git archive --format zip --output $(CLIENTBIN)-$(VERSION).zip HEAD
 
 #############################################################################
 # DEPENDENCIES

@@ -2988,7 +2988,7 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 				ri.Printf( PRINT_WARNING, "WARNING: missing parameters for rgbMod in shader '%s'\n", shader.name );
 				continue;
 			}
-			if ( !Q_stricmp( token, "glow" ) )
+			else if ( !Q_stricmp( token, "glow" ) )
 			{
 				// TODO: Parse "entity" and "vertex" for their colors, for railguns and maps
 				token = COM_ParseExt( text, qfalse );
@@ -3008,7 +3008,7 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 
 				stage->rgbMod = CMOD_GLOW;
 			}
-			if ( !Q_stricmp( token, "uvcol" ) )
+			else if ( !Q_stricmp( token, "uvcol" ) )
 			{
 				// Parse color
 				token = COM_ParseExt( text, qfalse );
@@ -3028,22 +3028,22 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 
 				stage->rgbMod = CMOD_UVCOL;
 			}
-			if ( !Q_stricmp( token, "normtoalpha" ) )
+			else if ( !Q_stricmp( token, "normtoalpha" ) )
 			{
 				// normalize colors, but average color prior is alpha.
 				stage->rgbMod = CMOD_NORMALIZETOALPHA;
 			}
-			if ( !Q_stricmp( token, "normtoalphafast" ) )
+			else if ( !Q_stricmp( token, "normtoalphafast" ) )
 			{
 				// normalize and use the first vert's color on whole surface, but average color prior is alpha.
 				stage->rgbMod = CMOD_NORMALIZETOALPHAFAST;
 			}
-			if ( !Q_stricmp( token, "lighting" ) )
+			else if ( !Q_stricmp( token, "lighting" ) )
 			{
 				// modulate a standard diffuse light on top of existing vertex colors
 				stage->rgbMod = CMOD_LIGHTING;
 			}
-			if ( !Q_stricmp( token, "opaque" ) )
+			else if ( !Q_stricmp( token, "opaque" ) )
 			{
 				// modulate a standard diffuse light on top of existing vertex colors
 				stage->rgbMod = CMOD_OPAQUE;
@@ -3604,6 +3604,38 @@ static qboolean ParseShader( char **text )
 			SkipRestOfLine( text );
 			continue;
 		}
+
+		// leilei - Parse a shader for the sun, and a type of flare for the number after it.
+		// Inspired by ET's sunShader (my own implementation)
+		else if ( !Q_stricmp( token, "sunShader" ) ) {
+			// load a sun shader to override our default shader
+			token = COM_ParseExt( text, qfalse );
+
+			tr.sunShaderCustom = CopyString(token); // leilei - copy the shader's name so we can load it properly elsewhere (doing it here would make a broken sun)
+			tr.sunOn = 1;	// activate sun to be rendered for r_drawSun 1.		
+
+			// the next one is the flare type.
+			token = COM_ParseExt( text, qfalse );
+			if ( !token[0] ) 
+			{
+				tr.sunFlare = 0;	// dont flare if we dont specify
+				continue;
+			}
+			tr.sunFlare = atoi( token );
+
+			// the next one is a size multiplier.
+			token = COM_ParseExt( text, qfalse );
+			if ( !token[0] ) 
+			{
+				tr.sunOn = 1;		// sun is always normal size if we don't specify
+				continue;
+			}
+			if (atof( token )>1)
+			tr.sunOn = atof( token );
+
+			continue;
+			}
+
 		// sun parms
 		else if ( !Q_stricmp( token, "q3map_sun" ) ) {
 			float	a, b;
@@ -5346,9 +5378,11 @@ a single large text block that can be scanned for shader names
 =====================
 */
 #define	MAX_SHADER_FILES	4096
+
 static void ScanAndLoadShaderFiles( void )
 {
 	char **shaderFiles;
+
 	char *buffers[MAX_SHADER_FILES];
 	char *p;
 	int numShaderFiles;
@@ -5368,10 +5402,6 @@ static void ScanAndLoadShaderFiles( void )
 		return;
 	}
 
-	if ( numShaderFiles > MAX_SHADER_FILES ) {
-		numShaderFiles = MAX_SHADER_FILES;
-	}
-
 	// load and parse shader files
 	for ( i = 0; i < numShaderFiles; i++ )
 	{
@@ -5383,7 +5413,7 @@ static void ScanAndLoadShaderFiles( void )
 		
 		if ( !buffers[i] )
 			ri.Error( ERR_DROP, "Couldn't load %s", filename );
-		
+
 		// Do a simple check on the shader structure in that file to make sure one bad shader file cannot fuck up all other shaders.
 		p = buffers[i];
 		COM_BeginParseSession(filename);
@@ -5426,9 +5456,12 @@ static void ScanAndLoadShaderFiles( void )
 		if (buffers[i])
 			sum += summand;		
 	}
+	if ( numShaderFiles > MAX_SHADER_FILES ) {
+		numShaderFiles = MAX_SHADER_FILES;
+	}
 
 	// build single large buffer
-	s_shaderText = ri.Hunk_Alloc( sum + numShaderFiles*2, h_low );
+	s_shaderText = ri.Hunk_Alloc( sum + (numShaderFiles*2), h_low );
 	s_shaderText[ 0 ] = '\0';
 	textEnd = s_shaderText;
  
@@ -5521,6 +5554,15 @@ static void CreateInternalShaders( void ) {
 	Q_strncpyz( shader.name, "<stencil shadow>", sizeof( shader.name ) );
 	shader.sort = SS_STENCIL_SHADOW;
 	tr.shadowShader = FinishShader();
+
+	// leilei - cone shader for flashblend
+	Q_strncpyz( shader.name, "<cone add>", sizeof( shader.name ) );
+	stages[0].bundle[0].image[0] = tr.whiteImage;
+	stages[0].active = qtrue;
+	stages[0].rgbGen = CGEN_VERTEX;
+	stages[0].alphaGen = AGEN_VERTEX;
+ 	stages[0].stateBits = GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
+	tr.coneShader = FinishShader();
 }
 
 static void CreateExternalShaders( void ) {
@@ -5566,9 +5608,6 @@ static void CreateExternalShaders( void ) {
 			tr.flareShaderAtlas->stages[index]->stateBits |= GLS_DEPTHTEST_DISABLE;
 		}
 	}
-
-
-	tr.sunShader = R_FindShader( "sun", LIGHTMAP_NONE, qtrue );
 
 //	leilei - placeholder shaders
 	tr.placeholderTextureShader = R_FindShader( "placeholder_texture", LIGHTMAP_NONE, qtrue );

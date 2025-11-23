@@ -1588,7 +1588,7 @@ static void RB_UVColor( unsigned char *colors, int glowcol, int fx )
 
 	v = tess.xyz[0];
 	normal = tess.normal[0];
-	texc = tess.texCoords[0];
+	texc = (float*) tess.texCoords[0];
 
 	numVertexes = tess.numVertexes;
 	for (i = 0 ; i < numVertexes ; i++, v += 4, texc+=2 ) {
@@ -1818,6 +1818,7 @@ void RB_CalcDiffuseColor( unsigned char *colors )
 	{
 		RB_CalcMaterials( colors, 0xFFFFFF, 0x808080, 0x808080, 0x000000, 128, 255 );
 	}
+#ifdef BROKEN_SHADELOD // leilei: FIXME this does not work as intended 
 	else if ((r_shadeMethod->integer > 150) && (r_shadeMethod->integer < 667)) 			// values in a certain range is an adaptive LOD selection of -1, 0 and 3
 	{
 		float projectedRadius, fsh, shadescale, radius;
@@ -1838,10 +1839,18 @@ void RB_CalcDiffuseColor( unsigned char *colors )
 				RB_CalcDiffuseColor_flat( colors );
 
 	}
+#endif	// BROKEN
 	else							// standard idtech3 shading
 	{
 		RB_CalcDiffuseColor_scalar( colors );
 	}
+
+	// leilei - glow property
+	if ((backEnd.currentEntity->e.glow >= 1337 && backEnd.currentEntity->e.glow <= 1340 )) // look for 1337-1340 as compatibility so we don't get malformed glows from old cgames
+	{
+		RB_GlowBlend( colors, backEnd.currentEntity->e.glowcol, (backEnd.currentEntity->e.glow - 1337) ); 
+	}
+
 
 }
 
@@ -2201,6 +2210,11 @@ void RB_CalcMaterials( unsigned char *colors, int ambient, int diffuse, int spec
 	// TODO: Low detail materials
 	RB_CalcMaterialColor( colors, 1, ambient, diffuse, specular, emissive, spechard, alpha );
 
+	// leilei - glow property
+	if ((backEnd.currentEntity->e.glow >= 1337 && backEnd.currentEntity->e.glow <= 1340 )) // look for 1337-1340 as compatibility so we don't get malformed glows from old cgames
+	{
+		RB_GlowBlend( colors, backEnd.currentEntity->e.glowcol, (backEnd.currentEntity->e.glow - 1337) ); 
+	}
 }
 
 
