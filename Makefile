@@ -54,7 +54,8 @@ endif
 -include Makefile.local
 
 ifndef PLATFORM
-PLATFORM=$(COMPILE_PLATFORM)
+#PLATFORM=$(COMPILE_PLATFORM)
+PLATFORM=mingw32
 endif
 export PLATFORM
 
@@ -173,7 +174,7 @@ USE_CURL=1
 endif
 
 ifndef USE_CURL_DLOPEN
-  ifeq ($(PLATFORM),mingw32)
+  ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
     USE_CURL_DLOPEN=0
   else
     USE_CURL_DLOPEN=1
@@ -560,7 +561,7 @@ else # ifeq darwin
 # SETUP AND BUILD -- MINGW32
 #############################################################################
 
-ifeq ($(PLATFORM),mingw32)
+ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
 
   ifeq ($(CROSS_COMPILING),1)
     # If CC is already set to something generic, we probably want to use
@@ -1331,7 +1332,7 @@ targets: makedirs
 	@echo "  COMPILE_PLATFORM: $(COMPILE_PLATFORM)"
 	@echo "  COMPILE_ARCH: $(COMPILE_ARCH)"
 	@echo "  CC: $(CC)"
-ifeq ($(PLATFORM),mingw32)
+ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
 	@echo "  WINDRES: $(WINDRES)"
 endif
 	@echo ""
@@ -1688,7 +1689,7 @@ Q3OBJ = \
   $(B)/client/con_log.o \
   $(B)/client/sys_main.o
 
-ifeq ($(PLATFORM),mingw32)
+ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
   Q3OBJ += \
     $(B)/client/con_passive.o
 else
@@ -2200,7 +2201,7 @@ ifeq ($(HAVE_VM_COMPILED),true)
   endif
 endif
 
-ifeq ($(PLATFORM),mingw32)
+ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
   Q3OBJ += \
     $(B)/client/win_resource.o \
     $(B)/client/sys_win32.o
@@ -2392,7 +2393,7 @@ ifeq ($(HAVE_VM_COMPILED),true)
   endif
 endif
 
-ifeq ($(PLATFORM),mingw32)
+ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
   Q3DOBJ += \
     $(B)/ded/win_resource.o \
     $(B)/ded/sys_win32.o \
@@ -2993,7 +2994,7 @@ ifneq ($(BUILD_GAME_SO),0)
 endif
 
 clean: clean-debug clean-release
-ifeq ($(PLATFORM),mingw32)
+ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
 	@$(MAKE) -C $(NSISDIR) clean
 else
 	@$(MAKE) -C $(LOKISETUPDIR) clean
@@ -3030,7 +3031,7 @@ distclean: clean toolsclean
 	@rm -rf $(BUILD_DIR)
 
 installer: release
-ifeq ($(PLATFORM),mingw32)
+ifneq (,$(filter $(PLATFORM),mingw32 mingw64))
 	@$(MAKE) VERSION=$(VERSION) -C $(NSISDIR) V=$(V) \
 		SDLDLL=$(SDLDLL) \
 		USE_RENDERER_DLOPEN=$(USE_RENDERER_DLOPEN) \
